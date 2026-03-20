@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Design Review Tracker</title>
+  <link rel="stylesheet" href="css/app.css">
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <!-- Header -->
+  <div class="header">
+    <h1>Design Review</h1>
+    <select id="project-select"></select>
+    <button id="btn-new-project">+ 프로젝트</button>
+    <button id="btn-import-sheet">피드백 시트 임포트</button>
+    <div class="spacer"></div>
+    <button id="btn-upload-original">원본 영상</button>
+    <button id="btn-upload-revised">수정본 영상</button>
+    <span id="upload-status"></span>
+  </div>
+
+  <!-- Hidden file inputs -->
+  <input type="file" id="file-input-sheet" class="hidden" accept=".xlsx,.xls">
+  <input type="file" id="file-input-original" class="hidden" accept="video/*">
+  <input type="file" id="file-input-revised" class="hidden" accept="video/*">
+
+  <!-- Video Players -->
+  <div class="video-section">
+    <div class="video-container">
+      <span class="video-label">Original</span>
+      <video id="video-original" preload="metadata"></video>
+      <div class="video-individual-controls">
+        <button class="btn-individual-play" data-video="video-original">Play</button>
+        <span class="individual-time" id="time-original">00:00.00</span>
+      </div>
+    </div>
+    <div class="video-container">
+      <span class="video-label">Revised</span>
+      <video id="video-revised" preload="metadata"></video>
+      <div class="video-individual-controls">
+        <button class="btn-individual-play" data-video="video-revised">Play</button>
+        <span class="individual-time" id="time-revised">00:00.00</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Video Controls -->
+  <div class="video-controls">
+    <button id="btn-play-pause">Both Play / Pause</button>
+    <button id="btn-sync-toggle" class="active">Sync: ON</button>
+    <span id="time-display">00:00.00 / 00:00.00</span>
+  </div>
+
+  <!-- Timeline Markers -->
+  <div class="timeline-container">
+    <div class="timeline-bar"></div>
+    <div id="timeline-markers"></div>
+  </div>
+
+  <!-- Summary -->
+  <div id="summary-bar"></div>
+
+  <!-- Filters -->
+  <div class="filter-bar">
+    <select id="filter-reviewer"></select>
+    <select id="filter-status">
+      <option value="">전체 상태</option>
+      <option value="pending">미확인</option>
+      <option value="applied">반영됨</option>
+      <option value="partially_applied">부분반영</option>
+      <option value="rejected">미반영</option>
+      <option value="needs_discussion">논의필요</option>
+    </select>
+    <select id="filter-sheet"></select>
+  </div>
+
+  <!-- Detail Panel -->
+  <div id="detail-panel">
+    <h4>피드백 상세</h4>
+    <div id="detail-comment"></div>
+    <div id="detail-meta">
+      <span>리뷰어: <span id="detail-reviewer"></span></span> |
+      <span>타임코드: <span id="detail-tc"></span></span>
+    </div>
+  </div>
+
+  <!-- Feedback Table -->
+  <div class="feedback-section">
+    <table class="feedback-table">
+      <thead>
+        <tr>
+          <th>TC(초)</th>
+          <th>씬#</th>
+          <th>피드백 내용</th>
+          <th>리뷰어</th>
+          <th>상태</th>
+        </tr>
+      </thead>
+      <tbody id="feedback-table-body"></tbody>
+    </table>
+  </div>
+
+  <script src="js/sheet-parser.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/video-player.js"></script>
+  <script src="js/feedback-panel.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

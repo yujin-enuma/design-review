@@ -1,0 +1,13 @@
+[project]
+name = "design-review"
+version = "0.1.0"
+description = "Design Review & Video Feedback Tracker"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "openpyxl>=3.1.0",
+    "httpx>=0.25.0",
+    "aiosqlite>=0.19.0",
+    "python-multipart>=0.0.6",
+]

@@ -1,0 +1,248 @@
+let state = {
+  projects: [],
+  currentProject: null,
+  versions: [],
+  sheets: [],
+  feedbackItems: [],
+  reviewers: [],
+  filters: { reviewer: null, status: null, sheet_name: null },
+  selectedVersionId: null,
+  player: null,
+};
+
+async function init() {
+  state.player = new DualVideoPlayer('video-original', 'video-revised');
+  setupEventListeners();
+  await loadProjects();
+}
+
+function setupEventListeners() {
+  document.getElementById('btn-new-project').addEventListener('click', createProject);
+  document.getElementById('btn-import-sheet').addEventListener('click', () => {
+    document.getElementById('file-input-sheet').click();
+  });
+  document.getElementById('file-input-sheet').addEventListener('change', importSheet);
+  document.getElementById('btn-upload-original').addEventListener('click', () => {
+    document.getElementById('file-input-original').click();
+  });
+  document.getElementById('file-input-original').addEventListener('change', (e) => uploadVideo(e, 1));
+  document.getElementById('btn-upload-revised').addEventListener('click', () => {
+    document.getElementById('file-input-revised').click();
+  });
+  document.getElementById('file-input-revised').addEventListener('change', (e) => uploadVideo(e, 2));
+  document.getElementById('btn-sync-toggle').addEventListener('click', toggleSync);
+  document.getElementById('btn-play-pause').addEventListener('click', () => state.player.playPause());
+  document.querySelectorAll('.btn-individual-play').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const video = document.getElementById(btn.dataset.video);
+      if (!video) return;
+      if (video.paused) { video.play(); btn.textContent = 'Pause'; }
+      else { video.pause(); btn.textContent = 'Play'; }
+    });
+  });
+  document.getElementById('filter-reviewer').addEventListener('change', applyFilters);
+  document.getElementById('filter-status').addEventListener('change', applyFilters);
+  document.getElementById('filter-sheet').addEventListener('change', applyFilters);
+
+  const video1 = document.getElementById('video-original');
+  const video2 = document.getElementById('video-revised');
+  if (video1) {
+    video1.addEventListener('timeupdate', () => {
+      updateTimeDisplay();
+      document.getElementById('time-original').textContent = formatTimecode(video1.currentTime);
+    });
+  }
+  if (video2) {
+    video2.addEventListener('timeupdate', () => {
+      document.getElementById('time-revised').textContent = formatTimecode(video2.currentTime);
+    });
+  }
+}
+
+async function loadProjects() {
+  state.projects = await API.get('/api/projects');
+  const select = document.getElementById('project-select');
+  select.innerHTML = '<option value="">-- 프로젝트 선택 --</option>';
+  state.projects.forEach(p => {
+    select.innerHTML += `<option value="${p.id}">${p.name}</option>`;
+  });
+  select.addEventListener('change', async () => {
+    const id = parseInt(select.value);
+    if (id) await selectProject(id);
+  });
+  if (state.projects.length > 0) {
+    select.value = state.projects[0].id;
+    await selectProject(state.projects[0].id);
+  }
+}
+
+async function selectProject(projectId) {
+  state.currentProject = projectId;
+  const [versions, sheets, reviewers] = await Promise.all([
+    API.get(`/api/projects/${projectId}/versions`),
+    API.get(`/api/projects/${projectId}/sheets`),
+    API.get(`/api/projects/${projectId}/reviewers`),
+  ]);
+  state.versions = versions;
+  state.sheets = sheets;
+  state.reviewers = reviewers;
+
+  // Set video sources
+  const original = versions.find(v => v.version_number === 1);
+  const revised = versions.find(v => v.version_number === 2);
+  if (original) state.player.setSource(1, `/api/videos/${original.id}/stream`);
+  if (revised) {
+    state.player.setSource(2, `/api/videos/${revised.id}/stream`);
+    state.selectedVersionId = revised.id;
+  } else if (original) {
+    state.selectedVersionId = original.id;
+  }
+
+  updateFilterDropdowns();
+  await loadFeedback();
+}
+
+function updateFilterDropdowns() {
+  const reviewerSel = document.getElementById('filter-reviewer');
+  reviewerSel.innerHTML = '<option value="">전체 리뷰어</option>';
+  state.reviewers.forEach(r => {
+    reviewerSel.innerHTML += `<option value="${r}">${r}</option>`;
+  });
+
+  const sheetSel = document.getElementById('filter-sheet');
+  sheetSel.innerHTML = '<option value="">전체 시트</option>';
+  state.sheets.forEach(s => {
+    sheetSel.innerHTML += `<option value="${s.sheet_name}">${s.sheet_name} (${s.sheet_type})</option>`;
+  });
+}
+
+async function loadFeedback() {
+  if (!state.currentProject) return;
+  let url = `/api/projects/${state.currentProject}/feedback?`;
+  if (state.selectedVersionId) url += `version_id=${state.selectedVersionId}&`;
+  if (state.filters.reviewer) url += `reviewer=${encodeURIComponent(state.filters.reviewer)}&`;
+  if (state.filters.status) url += `status=${state.filters.status}&`;
+  if (state.filters.sheet_name) url += `sheet_name=${encodeURIComponent(state.filters.sheet_name)}&`;
+
+  state.feedbackItems = await API.get(url);
+  renderFeedbackTable(state.feedbackItems, onRowClick, onStatusClick);
+  renderTimelineMarkers();
+
+  const summary = await API.get(
+    `/api/projects/${state.currentProject}/summary${state.selectedVersionId ? '?version_id=' + state.selectedVersionId : ''}`
+  );
+  renderSummaryBar(summary);
+}
+
+function onRowClick(item) {
+  if (item.timecode_seconds !== null && item.timecode_seconds !== undefined) {
+    state.player.seekTo(item.timecode_seconds);
+  }
+  document.getElementById('detail-comment').textContent = item.comment;
+  document.getElementById('detail-reviewer').textContent = item.reviewer || '-';
+  document.getElementById('detail-tc').textContent = formatTimecode(item.timecode_seconds);
+  document.getElementById('detail-panel').style.display = 'block';
+}
+
+function onStatusClick(item) {
+  const versionId = state.selectedVersionId || (state.versions[0] && state.versions[0].id);
+  if (!versionId) {
+    alert('비디오 버전을 먼저 등록해주세요');
+    return;
+  }
+  showStatusModal(item, versionId, async (itemId, vid, status, note) => {
+    await API.put(`/api/feedback/${itemId}/status`, {
+      video_version_id: vid,
+      status: status,
+      note: note,
+    });
+    await loadFeedback();
+  });
+}
+
+function renderTimelineMarkers() {
+  const container = document.getElementById('timeline-markers');
+  if (!container) return;
+  container.innerHTML = '';
+  const duration = state.player.getDuration() || 34;
+  state.feedbackItems.forEach(item => {
+    if (item.timecode_seconds === null) return;
+    const pct = (item.timecode_seconds / duration) * 100;
+    const cfg = STATUS_CONFIG[item.status] || STATUS_CONFIG.pending;
+    const marker = document.createElement('div');
+    marker.className = 'timeline-marker';
+    marker.style.left = `${pct}%`;
+    marker.style.backgroundColor = cfg.color;
+    marker.title = `${formatTimecode(item.timecode_seconds)} - ${item.reviewer}`;
+    marker.addEventListener('click', () => state.player.seekTo(item.timecode_seconds));
+    container.appendChild(marker);
+  });
+}
+
+function updateTimeDisplay() {
+  const video = document.getElementById('video-original');
+  if (!video) return;
+  const current = formatTimecode(video.currentTime);
+  const total = formatTimecode(video.duration);
+  document.getElementById('time-display').textContent = `${current} / ${total}`;
+}
+
+async function createProject() {
+  const name = prompt('프로젝트 이름을 입력하세요:');
+  if (!name) return;
+  await API.post('/api/projects', { name });
+  await loadProjects();
+}
+
+async function importSheet(e) {
+  if (!state.currentProject) { alert('프로젝트를 먼저 선택하세요'); return; }
+  const file = e.target.files[0];
+  if (!file) return;
+  const formData = new FormData();
+  formData.append('file', file);
+  try {
+    const result = await API.upload(`/api/projects/${state.currentProject}/import-sheet`, formData);
+    const counts = Object.entries(result.imported).map(([k, v]) => `${k}: ${v.count}건`).join(', ');
+    alert(`임포트 완료! ${counts}`);
+    await selectProject(state.currentProject);
+  } catch (err) {
+    alert(`임포트 실패: ${err.message}`);
+  }
+  e.target.value = '';
+}
+
+async function uploadVideo(e, versionNumber) {
+  if (!state.currentProject) { alert('프로젝트를 먼저 선택하세요'); return; }
+  const file = e.target.files[0];
+  if (!file) return;
+  const formData = new FormData();
+  formData.append('file', file);
+  try {
+    document.getElementById('upload-status').textContent = '업로드 중...';
+    const result = await API.upload(
+      `/api/projects/${state.currentProject}/upload-video?version_number=${versionNumber}`,
+      formData
+    );
+    document.getElementById('upload-status').textContent = '';
+    await selectProject(state.currentProject);
+  } catch (err) {
+    document.getElementById('upload-status').textContent = `업로드 실패: ${err.message}`;
+  }
+  e.target.value = '';
+}
+
+function toggleSync() {
+  const btn = document.getElementById('btn-sync-toggle');
+  state.player.syncLock = !state.player.syncLock;
+  btn.textContent = state.player.syncLock ? 'Sync: ON' : 'Sync: OFF';
+  btn.classList.toggle('active', state.player.syncLock);
+}
+
+function applyFilters() {
+  state.filters.reviewer = document.getElementById('filter-reviewer').value || null;
+  state.filters.status = document.getElementById('filter-status').value || null;
+  state.filters.sheet_name = document.getElementById('filter-sheet').value || null;
+  loadFeedback();
+}
+
+document.addEventListener('DOMContentLoaded', init);
